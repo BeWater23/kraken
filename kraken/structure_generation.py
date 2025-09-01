@@ -25,6 +25,9 @@ import scipy.spatial as scsp
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.rdchem import BondType, HybridizationType
+#check rdkit version, because that led to some problems earlier
+print(rdkit.__version__)
+print(rdkit.__file__)
 
 from morfeus import read_xyz
 

@@ -1,0 +1,7 @@
+[console_scripts]
+example_conf_search_submission_script = kraken.cli.example_conf_search_submission_script:main
+example_dft_submission_script = kraken.cli.example_dft_submission_script:main
+extract_dft_files = kraken.cli.extract_dft_files:main
+return_dft_files = kraken.cli.return_dft_files:main
+run_kraken_conf_search = kraken.cli.run_kraken_conf_search:main
+run_kraken_dft = kraken.cli.run_kraken_dft:main

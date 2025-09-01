@@ -54,8 +54,12 @@ def call_crest(file: Path,
     '''
     Executes the CREST commands for Kraken
     '''
-
-    command=f'crest {file.absolute()} --gbsa toluene -metac -nozs -T {nprocs} --chrg {charge}' # -mquick --gfnff
+    if noreftopo:
+        command=f'crest {file.absolute()} --gbsa toluene -metac -nozs -T {nprocs} --chrg {charge} --noreftopo' # -mquick --gfnff
+        if debug:
+            logger.debug('noreftopo=True in crest calculation')
+    else: 
+        command=f'crest {file.absolute()} --gbsa toluene -metac -nozs -T {nprocs} --chrg {charge}' # -mquick --gfnff
 
     # These are old crest commands?
     #command="crest %s --gbsa toluene -metac"%(filename)
@@ -94,6 +98,7 @@ def call_crest(file: Path,
 def run_crest(file: Path,
               nprocs: int,
               reduce_output: bool,
+              noreftopo: bool,
               smiles: str,
               charge: int,
               metal_char: str,
@@ -129,6 +134,7 @@ def run_crest(file: Path,
         call_crest(file=file,
                    nprocs=nprocs,
                    reduce_output=reduce_output,
+                   noreftopo=noreftopo,
                    charge=charge)
     else:
         logger.info('Found existing CREST calculation at %s. Reading output.', CREST_LOG_FILE.absolute())
