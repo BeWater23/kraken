@@ -246,6 +246,7 @@ def main():
 
     # Get the user supplied args
     reduce_crest_output = bool(args.reduce_crest_output)
+    noreftopo = bool(args.noreftopo)
     nprocs = int(args.nprocs)
     calc_dir = Path(args.calc_dir)
     metal_char = 'Ni'
@@ -280,6 +281,7 @@ def main():
         'dummy_distance': 2.1,
         'remove_scratch': True,
         'reduce_output': reduce_crest_output,
+        'noreftopo': noreftopo,
         'add_Pd_Cl2': False,
         'add_Pd_Cl2_PH3': False,
         'add_Ni_CO_3': False
