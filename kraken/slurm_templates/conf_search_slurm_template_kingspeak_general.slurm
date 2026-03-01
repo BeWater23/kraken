@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --partition=sigman-shared-kp
+#SBATCH --partition=sigman-kp
 #SBATCH --account=sigman-kp
 #SBATCH --time=$TIME:00:00
 #SBATCH --ntasks=$NPROCS

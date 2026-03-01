@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --partition=sigman-shared-np
+#SBATCH --partition=sigman-np
 #SBATCH --account=sigman-np
-#SBATCH --qos=sigman-high-np
+#SBATCH --qos=sigman-np
 #SBATCH --time=$TIME:00:00
 #SBATCH --ntasks=$NPROCS
 #SBATCH --nodes=1
