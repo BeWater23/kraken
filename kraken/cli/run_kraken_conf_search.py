@@ -314,6 +314,7 @@ def main():
                                charge=charge,
                                mol_dir=mol_dir,
                                reduce_crest_output=settings['reduce_output'],
+                               noreftopo=settings['noreftopo'],
                                dummy_distance=settings['dummy_distance'],
                                settings=settings,
                                metal_char=metal_char,
