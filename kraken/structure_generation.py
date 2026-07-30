@@ -476,10 +476,12 @@ def generate_nickel_carbonyl_complex(kraken_id: str,
             f'  Product {index}: {product_smiles_entry}'
             for index, product_smiles_entry in enumerate(product_smiles, start=1)
         )
-        raise ValueError(
-            f'Found {len(products)} products when attempting to generate Ni(CO)3 complex for {smiles}.\n'
-            f'Generated products were written to {debug_sdf} and {debug_png}.\n'
-            f'Canonical isomeric SMILES:\n{product_list}'
+        logger.warning(
+            'Found %d products when attempting to generate Ni(CO)3 complex for %s. '
+            'Generated products were written to %s and %s. '
+            'Proceeding with deterministically selected Product 1: %s.\n'
+            'All canonical isomeric SMILES:\n%s',
+            len(products), smiles, debug_sdf, debug_png, product_smiles[0], product_list,
         )
 
     # Fix dative bonds
