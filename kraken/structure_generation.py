@@ -23,7 +23,7 @@ from numpy.typing import NDArray
 import scipy.spatial as scsp
 
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, Draw
 from rdkit.Chem.rdchem import BondType, HybridizationType
 
 from morfeus import read_xyz
@@ -447,12 +447,40 @@ def generate_nickel_carbonyl_complex(kraken_id: str,
     if len(products) < 1:
         raise ValueError(f'Found {len(products)} products when attempting to generate Ni(CO)3 complex for {smiles}')
 
-    # Sanitize
-    products = list(set([Chem.MolToSmiles(x) for x in products]))
-    products = [Chem.MolFromSmiles(x) for x in products]
+    # Canonicalize the products before comparing them.  Keep the SMILES so that
+    # non-unique reaction outcomes can be inspected instead of only counted.
+    product_smiles = sorted({Chem.MolToSmiles(x, isomericSmiles=True) for x in products})
+    products = [Chem.MolFromSmiles(product_smiles_entry) for product_smiles_entry in product_smiles]
 
     if len(products) != 1:
-        raise ValueError(f'Found {len(products)} products when attempting to generate Ni(CO)3 complex for {smiles}')
+        debug_sdf = structure_gen_dir / f'{kraken_id}_Ni_generated_products.sdf'
+        debug_png = structure_gen_dir / f'{kraken_id}_Ni_generated_products.png'
+        legends = []
+
+        with Chem.SDWriter(str(debug_sdf)) as writer:
+            for index, (product, product_smiles_entry) in enumerate(zip(products, product_smiles), start=1):
+                product.SetProp('_Name', f'{kraken_id}_Ni_product_{index}')
+                product.SetProp('canonical_isomeric_smiles', product_smiles_entry)
+                writer.write(product)
+                legends.append(f'Product {index}: {product_smiles_entry}')
+
+        Draw.MolsToGridImage(
+            products,
+            molsPerRow=1,
+            subImgSize=(800, 600),
+            legends=legends,
+            useSVG=False,
+        ).save(str(debug_png))
+
+        product_list = '\n'.join(
+            f'  Product {index}: {product_smiles_entry}'
+            for index, product_smiles_entry in enumerate(product_smiles, start=1)
+        )
+        raise ValueError(
+            f'Found {len(products)} products when attempting to generate Ni(CO)3 complex for {smiles}.\n'
+            f'Generated products were written to {debug_sdf} and {debug_png}.\n'
+            f'Canonical isomeric SMILES:\n{product_list}'
+        )
 
     # Fix dative bonds
     product = products[0]
