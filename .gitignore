@@ -1,0 +1,8 @@
+# Local artifacts generated when building the Cython extension in place.
+/kraken/ConfPruneIdx.c
+/kraken/ConfPruneIdx*.so
+/build/
+
+# Python interpreter caches.
+__pycache__/
+*.py[cod]
