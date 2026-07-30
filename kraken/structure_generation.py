@@ -451,10 +451,15 @@ def generate_nickel_carbonyl_complex(kraken_id: str,
     # non-unique reaction outcomes can be inspected instead of only counted.
     unique_products = {}
     for candidate in products:
-        candidate_smiles = Chem.MolToSmiles(candidate, isomericSmiles=True)
+        # Reaction products need sanitization before AddHs() can determine
+        # implicit valences.  Sanitizing a copy retains atom order and chiral
+        # tags, unlike the former SMILES round-trip.
+        sanitized_candidate = Chem.Mol(candidate)
+        Chem.SanitizeMol(sanitized_candidate)
+        candidate_smiles = Chem.MolToSmiles(sanitized_candidate, isomericSmiles=True)
         # Keep the reaction product itself rather than rebuilding it from
         # SMILES, thereby retaining RDKit's atom order and chiral tags.
-        unique_products.setdefault(candidate_smiles, candidate)
+        unique_products.setdefault(candidate_smiles, sanitized_candidate)
     product_smiles = sorted(unique_products)
     products = [unique_products[product_smiles_entry] for product_smiles_entry in product_smiles]
 
