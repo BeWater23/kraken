@@ -105,6 +105,7 @@ def run_crest(file: Path,
               add_Pd_Cl2: bool,
               add_Pd_Cl2_PH3: bool,
               add_Ni_CO_3: bool,
+              P_index: int | None = None,
               ) -> tuple[bool, bool, list, list, list, list, list[dict], list]:
     '''
     Primary function for running CREST/xTB and
@@ -164,9 +165,12 @@ def run_crest(file: Path,
     # Get the number of atoms
     natoms = int(len(coords_all[0]))
 
-    # Get the P atom index
-    #TODO This is used in some other functions and was previously stored in "settings" dictionary
-    P_index=elements_all[0].index("P")
+    # Preserve the selected donor P when a complex contains more than one P.
+    # Retain the historical first-P behavior only when no index is supplied.
+    if P_index is None:
+        P_index = elements_all[0].index("P")
+    if P_index >= len(elements_all[0]) or elements_all[0][P_index] != 'P':
+        raise ValueError(f'P_index {P_index} does not identify phosphorus in {file.name}')
     logger.debug('run_crest: found P atom index %s', str(P_index))
 
     # Set xtb_done to True

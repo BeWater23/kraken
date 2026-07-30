@@ -207,6 +207,8 @@ def run_kraken_calculation(kraken_id: str,
     # Begin primary job loop here.
     for job in jobs:
 
+        phosphorus_index = None
+
         logger.info('Starting job %s for %s', job, kraken_id)
         logger.debug('smiles: %s', smiles)
         logger.debug('generate_xyz: %s', generate_xyz)
@@ -229,19 +231,18 @@ def run_kraken_calculation(kraken_id: str,
                 structure_generation_directory = mol_dir / 'structure_generation'
                 structure_generation_directory.mkdir(exist_ok=True)
 
-                elements, coords = generate_nickel_carbonyl_complex(kraken_id=kraken_id,
-                                                                    smiles=smiles,
-                                                                    charge=charge,
-                                                                    structure_gen_dir=structure_generation_directory)
+                elements, coords, phosphorus_index = generate_nickel_carbonyl_complex(kraken_id=kraken_id,
+                                                                                        smiles=smiles,
+                                                                                        charge=charge,
+                                                                                        structure_gen_dir=structure_generation_directory)
 
-                # Set the phosphorus index
-                P_index = list(elements).index('P')
-                settings['P_index'] = P_index
+                settings['P_index'] = phosphorus_index
 
             else:
                 logger.info('Generating coordinates from SMILES %s', smiles)
 
                 coords, elements = get_coords_from_smiles(smiles=smiles, conversion_method=conversion_method)
+                phosphorus_index = list(elements).index('P')
 
             # Make the file for running crest
             xyz_file_path = crest_calculation_dir / f'{kraken_id}_{job}.xyz'
@@ -263,6 +264,7 @@ def run_kraken_calculation(kraken_id: str,
 
             shutil.copy2(xyz_file_path, crest_calculation_dir / xyz_file_path.name)
             xyz_file_path = crest_calculation_dir / xyz_file_path.name
+            phosphorus_index = list(elements).index('P')
 
         # Run the CREST calculation
         logger.info('Running CREST calculation of Kraken ID %s at %s', kraken_id, xyz_file_path)
@@ -276,7 +278,8 @@ def run_kraken_calculation(kraken_id: str,
                                                                                                                                                            metal_char=metal_char,
                                                                                                                                                            add_Pd_Cl2=add_Pd_Cl2,
                                                                                                                                                            add_Pd_Cl2_PH3=add_Pd_Cl2_PH3,
-                                                                                                                                                           add_Ni_CO_3=add_Ni_CO_3)
+                                                                                                                                                           add_Ni_CO_3=add_Ni_CO_3,
+                                                                                                                                                           P_index=phosphorus_index)
 
         if not crest_done:
             raise ValueError(f'CREST did not terminate normally for {xyz_file_path.name} on job {job}.')
@@ -298,8 +301,8 @@ def run_kraken_calculation(kraken_id: str,
             # Get the elements for this conformer
             elements_conf = elements_all[conf_idx]
 
-            # Get the index of the phosphorus atom for the MORFEUS calculation
-            morfeus_phosphorus_index = list(elements).index('P')
+            # Keep the selected donor P through CREST and into MORFEUS.
+            morfeus_phosphorus_index = phosphorus_index
 
             # Get the directory of this conformer
             #moldir_conf = "%s/conf_%i"%(moldir,conf_indeces[conf_idx])

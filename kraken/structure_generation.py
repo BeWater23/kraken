@@ -449,8 +449,14 @@ def generate_nickel_carbonyl_complex(kraken_id: str,
 
     # Canonicalize the products before comparing them.  Keep the SMILES so that
     # non-unique reaction outcomes can be inspected instead of only counted.
-    product_smiles = sorted({Chem.MolToSmiles(x, isomericSmiles=True) for x in products})
-    products = [Chem.MolFromSmiles(product_smiles_entry) for product_smiles_entry in product_smiles]
+    unique_products = {}
+    for candidate in products:
+        candidate_smiles = Chem.MolToSmiles(candidate, isomericSmiles=True)
+        # Keep the reaction product itself rather than rebuilding it from
+        # SMILES, thereby retaining RDKit's atom order and chiral tags.
+        unique_products.setdefault(candidate_smiles, candidate)
+    product_smiles = sorted(unique_products)
+    products = [unique_products[product_smiles_entry] for product_smiles_entry in product_smiles]
 
     if len(products) != 1:
         debug_sdf = structure_gen_dir / f'{kraken_id}_Ni_generated_products.sdf'
@@ -498,6 +504,19 @@ def generate_nickel_carbonyl_complex(kraken_id: str,
         if _atom.GetSymbol() == 'Ni':
             _atom.SetHybridization(HybridizationType.SP3)
 
+    donor_p_indices = [
+        atom.GetIdx()
+        for atom in product.GetAtoms()
+        if atom.GetSymbol() == 'P'
+        and any(neighbor.GetSymbol() == 'Ni' for neighbor in atom.GetNeighbors())
+    ]
+    if len(donor_p_indices) != 1:
+        raise ValueError(
+            f'Expected exactly one Ni-bound phosphorus atom for {smiles}, '
+            f'but found {len(donor_p_indices)}.'
+        )
+    donor_p_index = donor_p_indices[0]
+
     product = Chem.AddHs(product)
     product = fix_ni_dative_directions(mol=product)
     AllChem.EmbedMolecule(product)
@@ -522,4 +541,10 @@ def generate_nickel_carbonyl_complex(kraken_id: str,
     # Read in the file
     elements, coords = read_xyz(Path(structure_gen_dir / 'xtbopt.xyz').absolute())
 
-    return elements, coords
+    if donor_p_index >= len(elements) or elements[donor_p_index] != 'P':
+        raise ValueError(
+            f'Ni-bound phosphorus index {donor_p_index} was not retained in '
+            f'the optimized structure for {kraken_id}.'
+        )
+
+    return elements, coords, donor_p_index

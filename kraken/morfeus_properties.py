@@ -112,10 +112,11 @@ def run_morfeus(coords: NDArray,
         coords_extended.append(coords[pd_idx_full_ligand])
         elements_extended += [metal_char]
 
-        # Get another p_idx but this is not capitalized?
-        # Get the index of the phosphorus atom from the
-        # entire complex (i.e., not the truncated coords/elements)
-        p_idx = list(elements_extended).index('P')
+        # The mask preserves the full-complex atom order.  Use the selected
+        # Ni-bound donor P, not the first phosphorus in the truncated ligand.
+        if P_index not in mask:
+            raise ValueError(f'Ni-bound P index {P_index} was removed from the ligand mask')
+        p_idx = mask.index(P_index)
 
         # Get the pd_idx with the same specifications as above
         pd_idx = list(elements_extended).index(metal_char)
@@ -145,8 +146,9 @@ def run_morfeus(coords: NDArray,
     # If we're doing a free ligand calculation
     else:
 
-        # Get the p_idx
-        p_idx = list(elements).index('P')
+        # Use the caller-selected donor P.  This matters for free
+        # diphosphines, where more than one P may be present.
+        p_idx = P_index
 
         # Get the correct dummy atom
         dummy_distances_to_p = scsp.distance.cdist([coords[p_idx]], dummy_positions)[0]
