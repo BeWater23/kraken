@@ -30,7 +30,7 @@ from morfeus import SASA
 from morfeus import Dispersion
 
 from .file_io import write_xyz
-from .utils import get_ligand_indices
+from .utils import get_ligand_indices, get_metal_bound_phosphorus_index
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +64,22 @@ def run_morfeus(coords: NDArray,
 
     if suffix == 'Ni':
 
+        coordinated_p_index = get_metal_bound_phosphorus_index(coords=coords,
+                                                                elements=elements,
+                                                                metal_char=metal_char)
+        if coordinated_p_index != P_index:
+            logger.warning(
+                'The P index propagated from structure generation (%d) is not '
+                'the P atom coordinated to %s after relaxation (%d). Using the '
+                'coordinated P for this conformer.',
+                P_index, metal_char, coordinated_p_index,
+            )
+
         # Get the mask (the indices (0-index)) of the elements/coords that
         # correspond only to the phosphine and not Ni and the 3 CO molecules
         mask, done = get_ligand_indices(coords=np.array(coords),
                                         elements=elements,
-                                        P_index=P_index,
+                                        P_index=coordinated_p_index,
                                         smiles=smiles,
                                         metal_char=metal_char)
 
@@ -112,11 +123,11 @@ def run_morfeus(coords: NDArray,
         coords_extended.append(coords[pd_idx_full_ligand])
         elements_extended += [metal_char]
 
-        # The mask preserves the full-complex atom order.  Use the selected
-        # Ni-bound donor P, not the first phosphorus in the truncated ligand.
-        if P_index not in mask:
-            raise ValueError(f'Ni-bound P index {P_index} was removed from the ligand mask')
-        p_idx = mask.index(P_index)
+        # The mask preserves the full-complex atom order.  Use the phosphorus
+        # actually coordinated to Ni in this relaxed conformer.
+        if coordinated_p_index not in mask:
+            raise ValueError(f'Ni-bound P index {coordinated_p_index} was removed from the ligand mask')
+        p_idx = mask.index(coordinated_p_index)
 
         # Get the pd_idx with the same specifications as above
         pd_idx = list(elements_extended).index(metal_char)

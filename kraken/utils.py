@@ -124,6 +124,34 @@ def get_ligand_indices(coords: NDArray,
 
         return None, False
 
+
+def get_metal_bound_phosphorus_index(coords: NDArray,
+                                     elements: NDArray,
+                                     metal_char: str) -> int:
+    '''Return the phosphorus atom nearest to the metal in a relaxed complex.
+
+    Atom indices from an RDKit reaction product are not guaranteed to identify
+    the phosphorus that remains coordinated after xTB/CREST relaxation.  The
+    closest P--metal pair in the Cartesian structure is the appropriate donor
+    for subsequent topology splitting and Morfeus calculations.
+    '''
+    metal_indices = [idx for idx, element in enumerate(elements) if element == metal_char]
+    phosphorus_indices = [idx for idx, element in enumerate(elements) if element == 'P']
+    if len(metal_indices) != 1:
+        raise ValueError(f'Expected one {metal_char} atom, found {len(metal_indices)}.')
+    if not phosphorus_indices:
+        raise ValueError('Could not find a phosphorus atom in the metal complex.')
+
+    metal_index = metal_indices[0]
+    distances = {
+        phosphorus_index: float(np.linalg.norm(coords[metal_index] - coords[phosphorus_index]))
+        for phosphorus_index in phosphorus_indices
+    }
+    donor_index = min(distances, key=distances.get)
+    logger.debug('Selected P index %d as the %s-bound donor (distance %.3f A).',
+                 donor_index, metal_char, distances[donor_index])
+    return donor_index
+
 def get_bonds(coords, elements, force_bonds=False, forced_bonds=[]):
     '''
     Gets the bonds of a coords and elements set.
@@ -1347,4 +1375,3 @@ if __name__ == "__main__":
     #logfile = Path('/home/sigmanuser/James-Kraken/calculations_Ni/2158_Ni/crest.log')
     #read_crest_log(logfile)
     pass
-

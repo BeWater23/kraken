@@ -14,6 +14,8 @@ import logging
 import subprocess
 import itertools
 
+from collections import Counter
+
 from pathlib import Path
 
 import yaml
@@ -36,6 +38,7 @@ logger = logging.getLogger(__name__)
 from .gaussian_input import write_coms
 from .geometry import mirror_mol
 from .ConfPruneIdx import StrictRMSDPrune
+from .utils import get_ligand_indices, get_metal_bound_phosphorus_index
 
 # This covalent radius data differs from the one in kraken.utils
 # In utils, H rcov = 0.34 whereas here it is 0.32
@@ -152,6 +155,52 @@ def get_conmat(elements, coords):
                     conmat[i,iat],conmat[iat,i] = 1,1
     return conmat
 
+def _get_free_ligand_geometry(conf, data_here) -> tuple[list[str], np.ndarray]:
+    '''Extract and validate a free-ligand geometry for Gaussian input.
+
+    ``coords_extended`` normally contains the ligand plus a final dummy atom
+    used by Morfeus.  A failed Ni(CO)3 mask can instead leave the physical
+    Ni(CO)3 fragment in that list.  Never depend on atom order to remove it:
+    explicitly split a metal complex at its closest P--Ni bond and validate
+    the result against the explicit-hydrogen input SMILES.
+    '''
+    all_coords = np.asarray(data_here['confdata']['coords'][conf], dtype=float)
+    all_elements = list(data_here['confdata']['elements'][conf])
+    if len(all_coords) != len(all_elements):
+        raise ValueError(f'Conformer {conf} has mismatched coordinate and element counts.')
+    if len(all_elements) < 2:
+        raise ValueError(f'Conformer {conf} has too few atoms for DFT export.')
+
+    # Morfeus appends one final dummy atom (Ni for Ni jobs, H for noNi jobs).
+    coords = all_coords[:-1]
+    elements = all_elements[:-1]
+
+    if 'Ni' in elements:
+        donor_p_index = get_metal_bound_phosphorus_index(coords=coords,
+                                                          elements=elements,
+                                                          metal_char='Ni')
+        ligand_indices, done = get_ligand_indices(coords=coords,
+                                                   elements=elements,
+                                                   P_index=donor_p_index,
+                                                   smiles=data_here['smiles'],
+                                                   metal_char='Ni')
+        if not done or ligand_indices is None:
+            raise ValueError(f'Could not isolate the free ligand from Ni conformer {conf}.')
+        coords = coords[ligand_indices]
+        elements = [elements[index] for index in ligand_indices]
+
+    ligand = Chem.MolFromSmiles(data_here['smiles'])
+    if ligand is None:
+        raise ValueError(f'Could not parse input SMILES for conformer {conf}.')
+    expected_elements = [atom.GetSymbol() for atom in Chem.AddHs(ligand).GetAtoms()]
+    if Counter(elements) != Counter(expected_elements):
+        raise ValueError(
+            f'Free-ligand extraction for conformer {conf} has the wrong elemental composition: '
+            f'got {dict(Counter(elements))}, expected {dict(Counter(expected_elements))}.'
+        )
+    return elements, coords
+
+
 def write_xyz(file: Path,
               conf,
               data_here,
@@ -161,14 +210,16 @@ def write_xyz(file: Path,
     '''
     Writes an xyz file to the provided file Path
     '''
+    elements, coords = _get_free_ligand_geometry(conf=conf, data_here=data_here)
     if inverse:
-        geometry_string = "".join([f'{atom:>3} {-data_here["confdata"]["coords"][conf][ind][0]:15f} {-data_here["confdata"]["coords"][conf][ind][1]:15f} {-data_here["confdata"]["coords"][conf][ind][2]:15f}\n' for ind,atom in enumerate(data_here["confdata"]["elements"][0][:-1])])
-
-    else:
-        geometry_string = "".join([f'{atom:>3} {data_here["confdata"]["coords"][conf][ind][0]:15f} {data_here["confdata"]["coords"][conf][ind][1]:15f} {data_here["confdata"]["coords"][conf][ind][2]:15f}\n' for ind,atom in enumerate(data_here["confdata"]["elements"][0][:-1])])
+        coords = -coords
+    geometry_string = ''.join(
+        f'{atom:>3} {coord[0]:15f} {coord[1]:15f} {coord[2]:15f}\n'
+        for atom, coord in zip(elements, coords)
+    )
     if writefile:
         with open(file, 'w', newline='\n', encoding='utf-8') as f:
-            f.write(f'{len(data_here["confdata"]["coords"][conf]) -1 }\n\n')
+            f.write(f'{len(elements)}\n\n')
             f.write(geometry_string)
     return geometry_string
 
@@ -879,4 +930,3 @@ def conformer_selection_main(kraken_id: str,
 if __name__ == "__main__":
     # Test to see if I get the same conformers selected from old yaml files
     conformer_selection_main('00002158', save_dir=Path('/home/sigman/krakendev/data/00002158/dft/'), noNi_datafile=Path('/home/sigman/kraken-old/results_all_noNi/00002158_noNi_combined.yml'), Ni_datafile=Path('/home/sigman/kraken-old/results_all_Ni/00002158_Ni_combined.yml'))
-
