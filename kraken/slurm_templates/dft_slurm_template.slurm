@@ -3,7 +3,9 @@
 #SBATCH --account=sigman-np
 #SBATCH --qos=sigman-np
 #SBATCH --time=$TIME:00:00
-#SBATCH --ntasks=$NPROCS
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=$NPROCS
+#SBATCH --nodes=1
 #SBATCH --mem=$MEMG
 #SBATCH -o kraken_dft_$KID-%j.log
 #SBATCH -e kraken_dft_$KID-%j.error
