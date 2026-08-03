@@ -135,6 +135,7 @@ def get_metal_bound_phosphorus_index(coords: NDArray,
     closest P--metal pair in the Cartesian structure is the appropriate donor
     for subsequent topology splitting and Morfeus calculations.
     '''
+    coords = np.asarray(coords, dtype=float)
     metal_indices = [idx for idx, element in enumerate(elements) if element == metal_char]
     phosphorus_indices = [idx for idx, element in enumerate(elements) if element == 'P']
     if len(metal_indices) != 1:
