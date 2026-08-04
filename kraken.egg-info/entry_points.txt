@@ -1,4 +1,5 @@
 [console_scripts]
+convert_yaml_to_csv = kraken.cli.convert_yaml_to_csv:main
 example_conf_search_submission_script = kraken.cli.example_conf_search_submission_script:main
 example_dft_submission_script = kraken.cli.example_dft_submission_script:main
 extract_dft_files = kraken.cli.extract_dft_files:main

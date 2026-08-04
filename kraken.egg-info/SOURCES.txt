@@ -26,6 +26,8 @@ kraken.egg-info/dependency_links.txt
 kraken.egg-info/entry_points.txt
 kraken.egg-info/top_level.txt
 kraken/cli/__init__.py
+kraken/cli/convert_yaml_to_csv.py
+kraken/cli/convert_yaml_to_sdf.py
 kraken/cli/example_conf_search_submission_script.py
 kraken/cli/example_dft_submission_script.py
 kraken/cli/extract_coordinates_from_yaml.py
