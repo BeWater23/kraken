@@ -250,6 +250,26 @@ def get_permission(filepath: str | Path) -> None:
     if not os.access(path, os.R_OK):
         path.chmod(0o777)
 
+
+def cubegen_output_is_complete(cube_file: Path) -> bool:
+    '''Return whether a CubeGen file contains all values in its declared grid.'''
+    try:
+        with open(cube_file, 'r', encoding='utf-8') as file_handle:
+            header = [next(file_handle) for _ in range(6)]
+            natoms = abs(int(header[2].split()[0]))
+            grid_points = math.prod(int(header[line_index].split()[0])
+                                    for line_index in range(3, 6))
+
+            for _ in range(natoms):
+                next(file_handle)
+
+            values_written = sum(len(line.split()) for line in file_handle)
+    except (OSError, StopIteration, ValueError, IndexError):
+        return False
+
+    return values_written >= grid_points
+
+
 def run_cubegen(n_in: str,
                 fchk_file: Path,
                 cube_infile: Path,
@@ -269,6 +289,11 @@ def run_cubegen(n_in: str,
                           cwd=fchk_file.parent)
 
     logger.info('Finished cubegen on %s\treturncode %d', fchk_file.name, proc.returncode)
+
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f'CubeGen failed for {fchk_file.absolute()} with return code {proc.returncode}.'
+        )
 
     return proc.returncode
 
@@ -371,6 +396,12 @@ def get_vmin(fchk: Path,
         if not cubegen_input_file.exists():
             write_inpcube(vminob=vminob, destination=cubegen_input_file)
 
+        # A job can be interrupted after CubeGen creates only the header.  Do
+        # not treat that partial file as a reusable cube on a later rerun.
+        if cubegen_output_file.exists() and not cubegen_output_is_complete(cubegen_output_file):
+            logger.warning('Removing incomplete CubeGen output %s', cubegen_output_file.absolute())
+            cubegen_output_file.unlink()
+
         # If the cubegen output file doesn't exist
         if not cubegen_output_file.exists():
 
@@ -414,8 +445,16 @@ def get_vmin(fchk: Path,
                             cube_outfile=cubegen_output_file,
                             nprocs=nprocs)
 
+        if not cubegen_output_is_complete(cubegen_output_file):
+            raise RuntimeError(
+                f'CubeGen did not create a complete grid at {cubegen_output_file.absolute()}.'
+            )
 
         cubman_output_file = fchk.parent / f'{fchk.stem}{reference_suffix}_Pesp_out{vminob.suffix}.txt'
+
+        if cubman_output_file.exists() and cubman_output_file.stat().st_size == 0:
+            logger.warning('Removing empty Cubman output %s', cubman_output_file.absolute())
+            cubman_output_file.unlink()
 
         if not cubman_output_file.exists():
             logger.info('Running cubman')
@@ -502,7 +541,18 @@ def run_cubman(cube_file: Path) -> Path:
 
     # Args for testing
     # to y 90000001_noNi_00000_Pesp_out.cub y 90000001_noNi_00000_Pesp_out.txt
-    a_out = a.communicate(input=inputargs.encode())
+    a_out, _ = a.communicate(input=inputargs.encode())
+
+    if a.returncode != 0:
+        raise RuntimeError(
+            f'Cubman failed for {cube_file.absolute()} with return code {a.returncode}: '
+            f'{a_out.decode(errors="replace").strip()}'
+        )
+    if not output_file.exists() or output_file.stat().st_size == 0:
+        raise RuntimeError(
+            f'Cubman did not create a readable text file from {cube_file.absolute()}: '
+            f'{a_out.decode(errors="replace").strip()}'
+        )
 
     return output_file
 
