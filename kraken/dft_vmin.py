@@ -84,11 +84,9 @@ class Vminob:
     def p_lp(self,iteration):
         # expects a three-coordinate P containing compound. Adds a valence to P so that the angle to the three previous substituents is maximized and resorts the coordinate output for convenience
 
-        for i,atom in enumerate(self.coords):
-            if (atom[0] == "P" or atom[0] == "As" or atom[0] == "Sb") and sum(self.conmat[i]) <=3:
-                self.nop = i
-                self.coordp = np.array(self.coords[i][1:])
-                break
+        self.nop, self.conmat = get_vmin_reference_atom(coords=self.coords,
+                                                         conmat=self.conmat)
+        self.coordp = np.array(self.coords[self.nop][1:])
 
         vec = np.array([0.0,0.0,0.0])
         bonded = []
@@ -111,6 +109,7 @@ class Vminob:
     #    grid_coords = [2*dirx/npoints[0],2*diry/npoints[1],dirz/2*npoints[2]]
         self.grid_or = self.coordlp - self.dz*0.5 * self.dirz - 0.5*self.dxy * self.diry - 0.5*self.dxy * self.dirx # grid_origin
         return()
+
 
     def copy_info(self,prev):
         self.coords = prev.coords
@@ -550,3 +549,53 @@ def get_geom_fch(vminob: Vminob, file: Path):
 
     return coords
 
+
+def get_vmin_reference_atom(coords: list[list],
+                            conmat: np.ndarray) -> tuple[int, np.ndarray]:
+    '''Select a group-15 donor for Vmin, ignoring an artificial P--P contact.
+
+    Vmin constructs a distance-derived connectivity matrix independently of
+    the DFT property collector.  In folded diphosphines, the two non-bonded
+    phosphorus atoms can fall within its P--P cutoff.  A P with three non-P
+    neighbours remains a tertiary phosphine, so remove that extra contact
+    from the local matrix used to construct its lone-pair grid.
+    '''
+    donor_elements = {'P', 'As', 'Sb'}
+    descriptions = []
+
+    for donor_index, atom in enumerate(coords):
+        element = atom[0]
+        if element not in donor_elements:
+            continue
+
+        neighbours = list(np.flatnonzero(conmat[donor_index]))
+        non_phosphorus_neighbours = [
+            index for index in neighbours if coords[index][0] != 'P'
+        ]
+        phosphorus_neighbours = [
+            index for index in neighbours if coords[index][0] == 'P'
+        ]
+        descriptions.append(
+            f'{element}{donor_index}: total={len(neighbours)}, '
+            f'non-P={len(non_phosphorus_neighbours)}, P={len(phosphorus_neighbours)}'
+        )
+
+        if len(neighbours) <= 3:
+            return donor_index, conmat
+
+        if element == 'P' and len(non_phosphorus_neighbours) == 3 and phosphorus_neighbours:
+            reference_conmat = conmat.copy()
+            for neighbour_index in phosphorus_neighbours:
+                reference_conmat[donor_index, neighbour_index] = 0
+                reference_conmat[neighbour_index, donor_index] = 0
+            logger.warning(
+                'Ignoring %d distance-derived P--P contact(s) for P index %d '
+                'when constructing the Vmin lone-pair grid.',
+                len(phosphorus_neighbours), donor_index,
+            )
+            return donor_index, reference_conmat
+
+    raise ValueError(
+        'Could not identify a three-coordinate group-15 atom for the Vmin '
+        f'lone-pair grid. Inferred coordination: {"; ".join(descriptions) or "no P, As, or Sb atoms"}.'
+    )
