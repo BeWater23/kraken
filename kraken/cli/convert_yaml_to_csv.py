@@ -261,9 +261,26 @@ def main():
         with open(confdata_yml, 'r', encoding='utf-8') as f:
             data = yaml.full_load(f)
 
-        dft_conformers_xyz = output_dir / f'{kraken_id}_dft_conformers.xyz'
-        write_dft_conformers_xyz(conformer_data=data,
-                                 destination=dft_conformers_xyz)
+        # Ni and noNi conformers originate from separate workflows and do not
+        # share an atom order.  Keep them in separate multi-XYZ files so each
+        # file has stable atom numbering across its frames.
+        for suffix in ('Ni', 'noNi'):
+            conformer_group = {
+                conformer_name: conformer_data_dictionary
+                for conformer_name, conformer_data_dictionary in data.items()
+                if f'_{suffix}_' in conformer_name
+            }
+            if conformer_group:
+                write_dft_conformers_xyz(
+                    conformer_data=conformer_group,
+                    destination=output_dir / f'{kraken_id}_{suffix}_dft_conformers.xyz',
+                )
+
+        combined_dft_conformers_xyz = output_dir / f'{kraken_id}_dft_conformers.xyz'
+        if combined_dft_conformers_xyz.exists():
+            combined_dft_conformers_xyz.unlink()
+            logger.info('Removed obsolete mixed-order conformer file %s',
+                        combined_dft_conformers_xyz.name)
 
         if data_yml.parent == data_dir:
             data_ymls_to_move.append((data_yml, archived_data_yml))
