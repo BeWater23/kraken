@@ -236,11 +236,13 @@ PHOSPHORUS_GEOMETRIC_PROPERTIES = frozenset([
     'vmin_vmin', 'vmin_r',
 ])
 
-# Only these MMPROPERTIES should use every individual P value for their
-# ligand-level min/max/delta pool.  Molecular dipole and quadrupole values
-# remain one value per conformer.
-PHOSPHORUS_GEOMETRIC_MMPROPERTIES = frozenset(MMPROPERTIES).intersection(
-    PHOSPHORUS_GEOMETRIC_PROPERTIES
+# Add P-centred electronic properties to the geometric min/max/delta output.
+# Molecular dipole and quadrupole values remain one value per conformer.
+CONDENSED_PROPERTIES = MMPROPERTIES + sorted(
+    PHOSPHORUS_GAUSSIAN_PROPERTIES.difference(MMPROPERTIES)
+)
+PHOSPHORUS_CONDENSED_PROPERTIES = frozenset(CONDENSED_PROPERTIES).intersection(
+    PHOSPHORUS_GAUSSIAN_PROPERTIES.union(PHOSPHORUS_GEOMETRIC_PROPERTIES)
 )
 
 
@@ -717,7 +719,7 @@ def average_phosphorus_properties(phosphorus_properties: dict[str, dict]) -> dic
 def get_condensed_property_values(confdata: dict,
                                   property_label: str) -> list[float]:
     '''Return values contributing to a ligand-level min/max/delta descriptor.'''
-    if property_label in PHOSPHORUS_GEOMETRIC_MMPROPERTIES:
+    if property_label in PHOSPHORUS_CONDENSED_PROPERTIES:
         phosphorus_properties = confdata.get('phosphorus_properties', {})
         individual_values = [
             phosphorus_data['properties'].get(property_label)
@@ -1458,14 +1460,15 @@ def run_end(kraken_id: str,
     # Generate "Condensed" properties
     ligand_data["vburminconf"] = ligand_data["conformers"][np.argmin([ligand_data["confdata"][conf]["properties"]["vbur_vbur"] for conf in ligand_data["conformers"]])]
 
-    for prop in MMPROPERTIES:
+    for prop in CONDENSED_PROPERTIES:
 
         #logger.debug('Computing condensed properties for property %s', prop)
 
-        # P-centred geometric descriptors contribute one value for every
-        # phosphorus atom in every conformer.  Other descriptors remain one
-        # value per conformer.  This makes, for example, pyr_alpha_min the
-        # minimum over both phosphines rather than over their conformer means.
+        # P-centred geometric and electronic descriptors contribute one value
+        # for every phosphorus atom in every conformer.  Other descriptors
+        # remain one value per conformer.  This makes, for example,
+        # pyr_alpha_min and nbo_P_min minima over both phosphines rather than
+        # over their conformer means.
         proplist = [
             value
             for conf in ligand_data["conformers"]
