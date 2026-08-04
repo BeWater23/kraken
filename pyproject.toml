@@ -14,6 +14,7 @@ run_kraken_dft = "kraken.cli.run_kraken_dft:main"
 run_kraken_conf_search = "kraken.cli.run_kraken_conf_search:main"
 example_conf_search_submission_script = "kraken.cli.example_conf_search_submission_script:main"
 example_dft_submission_script = "kraken.cli.example_dft_submission_script:main"
+convert_yaml_to_csv = "kraken.cli.convert_yaml_to_csv:main"
 
 [tool.setuptools]
 packages = ["kraken", "kraken.cli"]
