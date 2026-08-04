@@ -135,15 +135,24 @@ def get_nbo(filecont,query):
 def get_nbo_orbsP(filecont,query): # pop=nbo
     """Return all bonding, antibonding and lone pair (NB)orbitals that atom 'query' is involved in as a dictionary."""
     nbo_sum_pattern = "Natural Bond Orbitals"# (Summary)"
-    nbo_an_pattern  = "NATURAL BOND ORBITAL ANALYSIS:"
     orbitals = {}
-    for i in range(len(filecont)):
 
-        if re.search(nbo_an_pattern,filecont[i],re.IGNORECASE):
-            for j in range(i+10,len(filecont)):
-                if " LP ( 1) P" in filecont[j]:
-                    lp_percent_s = float(float_pattern.findall(filecont[j])[1])
-                    break
+    # The old implementation took the first phosphorus lone-pair line in the
+    # NBO analysis, irrespective of ``query``.  Match Gaussian's 1-based atom
+    # number explicitly so a diphosphine receives a separate s-character for
+    # each P atom.
+    lone_pair_pattern = re.compile(
+        rf"LP\s*\(\s*1\s*\)\s*P\s*{query + 1}\b.*?"
+        rf"s\(\s*({FLOAT_PATTERN.pattern})%\)"
+    )
+    lp_percent_s = None
+    for line in filecont:
+        lone_pair_match = lone_pair_pattern.search(line)
+        if lone_pair_match:
+            lp_percent_s = float(lone_pair_match.group(1))
+            break
+
+    for i in range(len(filecont)):
         if re.search(nbo_sum_pattern,filecont[i],re.IGNORECASE):
             for j in range(i,len(filecont)):
                 if str(query+1) in " ".join(re.findall("([A-Z][a-z]? *[0-9]+)",filecont[j])).split() and ("LP" in filecont[j] or "BD" in filecont[j]):

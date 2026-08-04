@@ -67,9 +67,11 @@ class Vminob:
     def __init__(self,
                  name,
                  ext,
-                 status):
+                 status,
+                 reference_atom_index: int | None = None):
         self.name = name
         self.ext = ext
+        self.reference_atom_index = reference_atom_index
         if status == "" or status == "stdcube":
             self.dxy = 0.85 / BOHR_TO_ANGSTROM   # dimensions perpendicular to P-LP
             self.dz = 0.8 / BOHR_TO_ANGSTROM   #0.5 dimension in P-LP direction
@@ -84,8 +86,11 @@ class Vminob:
     def p_lp(self,iteration):
         # expects a three-coordinate P containing compound. Adds a valence to P so that the angle to the three previous substituents is maximized and resorts the coordinate output for convenience
 
-        self.nop, self.conmat = get_vmin_reference_atom(coords=self.coords,
-                                                         conmat=self.conmat)
+        self.nop, self.conmat = get_vmin_reference_atom(
+            coords=self.coords,
+            conmat=self.conmat,
+            reference_atom_index=self.reference_atom_index,
+        )
         self.coordp = np.array(self.coords[self.nop][1:])
 
         vec = np.array([0.0,0.0,0.0])
@@ -300,7 +305,8 @@ def get_conmat_for_vmin(_rcov: dict, _coords: list[list]):
 
 def get_vmin(fchk: Path,
              nprocs: int,
-             runcub=False) -> Vminob:
+             runcub=False,
+             reference_atom_index: int | None = None) -> Vminob:
     '''
     Pass the .fchk file
     runcub should be True in the read_conformer script
@@ -316,8 +322,9 @@ def get_vmin(fchk: Path,
 
     vminobjects = []
 
-    output_file = fchk.parent / f'{fchk.stem}_vmin_results2.txt'
-    final_output_file = fchk.parent / f'{fchk.stem}_vmin_results.txt'
+    reference_suffix = '' if reference_atom_index is None else f'_P{reference_atom_index + 1}'
+    output_file = fchk.parent / f'{fchk.stem}{reference_suffix}_vmin_results2.txt'
+    final_output_file = fchk.parent / f'{fchk.stem}{reference_suffix}_vmin_results.txt'
 
     with open(output_file, 'w') as f:
         f.write("Name;Suffix;Vmin;R(Vmin);On_edge;Wrong_atom;X_Vmin;Y_Vmin;Z_Vmin\n")
@@ -333,7 +340,7 @@ def get_vmin(fchk: Path,
     iteration = 0
 
     while status != "done":
-        vminob = Vminob(name, ext, status)
+        vminob = Vminob(name, ext, status, reference_atom_index=reference_atom_index)
 
         # If this is the first iteration, read in the file and get the conmat
         if iteration == 0 and "fch" in ext:
@@ -357,8 +364,8 @@ def get_vmin(fchk: Path,
 
         vminob.suffix = ("_" + status+str(iteration)) * bool(len(status))
 
-        cubegen_input_file = fchk.parent / f'{fchk.stem}_Pesp_in{vminob.suffix}.cub'
-        cubegen_output_file = fchk.parent / f'{fchk.stem}_Pesp_out{vminob.suffix}.cub'
+        cubegen_input_file = fchk.parent / f'{fchk.stem}{reference_suffix}_Pesp_in{vminob.suffix}.cub'
+        cubegen_output_file = fchk.parent / f'{fchk.stem}{reference_suffix}_Pesp_out{vminob.suffix}.cub'
 
         # Write the input file regardless
         if not cubegen_input_file.exists():
@@ -408,7 +415,7 @@ def get_vmin(fchk: Path,
                             nprocs=nprocs)
 
 
-        cubman_output_file = fchk.parent / f'{fchk.stem}_Pesp_out{vminob.suffix}.txt'
+        cubman_output_file = fchk.parent / f'{fchk.stem}{reference_suffix}_Pesp_out{vminob.suffix}.txt'
 
         if not cubman_output_file.exists():
             logger.info('Running cubman')
@@ -551,7 +558,8 @@ def get_geom_fch(vminob: Vminob, file: Path):
 
 
 def get_vmin_reference_atom(coords: list[list],
-                            conmat: np.ndarray) -> tuple[int, np.ndarray]:
+                            conmat: np.ndarray,
+                            reference_atom_index: int | None = None) -> tuple[int, np.ndarray]:
     '''Select a group-15 donor for Vmin, ignoring an artificial P--P contact.
 
     Vmin constructs a distance-derived connectivity matrix independently of
@@ -563,9 +571,25 @@ def get_vmin_reference_atom(coords: list[list],
     donor_elements = {'P', 'As', 'Sb'}
     descriptions = []
 
-    for donor_index, atom in enumerate(coords):
+    if reference_atom_index is None:
+        donor_indices = range(len(coords))
+    else:
+        if reference_atom_index < 0 or reference_atom_index >= len(coords):
+            raise IndexError(
+                f'Vmin reference atom index {reference_atom_index} is outside '
+                f'the coordinate array of length {len(coords)}.'
+            )
+        donor_indices = [reference_atom_index]
+
+    for donor_index in donor_indices:
+        atom = coords[donor_index]
         element = atom[0]
         if element not in donor_elements:
+            if reference_atom_index is not None:
+                raise ValueError(
+                    f'Vmin reference atom index {reference_atom_index} is {element}, '
+                    'not a group-15 donor.'
+                )
             continue
 
         neighbours = list(np.flatnonzero(conmat[donor_index]))
@@ -596,6 +620,7 @@ def get_vmin_reference_atom(coords: list[list],
             return donor_index, reference_conmat
 
     raise ValueError(
-        'Could not identify a three-coordinate group-15 atom for the Vmin '
-        f'lone-pair grid. Inferred coordination: {"; ".join(descriptions) or "no P, As, or Sb atoms"}.'
+        'Could not identify the requested three-coordinate group-15 atom for '
+        f'the Vmin lone-pair grid. Inferred coordination: '
+        f'{"; ".join(descriptions) or "no P, As, or Sb atoms"}.'
     )

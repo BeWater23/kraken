@@ -212,6 +212,37 @@ MMPROPERTIES = ['dipolemoment', 'qpole_amp', 'qpoletens_xx', 'qpoletens_yy', 'qp
                   'vbur_far_vbur', 'vbur_near_vtot', 'vbur_far_vtot', 'sterimol_B1', 'sterimol_B5',
                   'sterimol_L', 'sterimol_burB1', 'sterimol_burB5', 'sterimol_burL']
 
+# These descriptors are evaluated with respect to a particular phosphorus
+# atom.  The conformer-level value is their mean over all suitable P atoms;
+# individual values are retained in ``phosphorus_properties`` in the YAML.
+PHOSPHORUS_GAUSSIAN_PROPERTIES = frozenset([
+    'nbo_P', 'nbo_P_ra', 'spindens_P_ra', 'nbo_P_rc', 'spindens_P_rc',
+    'nmr_P', 'nmrtens_sxx_P', 'nmrtens_syy_P', 'nmrtens_szz_P',
+    'efg_amp_P', 'efgtens_xx_P', 'efgtens_yy_P', 'efgtens_zz_P', 'nuesp_P',
+    'nbo_lp_P_percent_s', 'nbo_lp_P_occ', 'nbo_lp_P_e', 'nbo_bd_e_max',
+    'nbo_bd_e_avg', 'nbo_bds_e_min', 'nbo_bds_e_avg', 'nbo_bd_occ_min',
+    'nbo_bd_occ_avg', 'nbo_bds_occ_max', 'nbo_bds_occ_avg',
+    'nbo_delta_lp_P_bds', 'fukui_p', 'fukui_m',
+])
+
+PHOSPHORUS_GEOMETRIC_PROPERTIES = frozenset([
+    'pyr_P', 'pyr_alpha', 'vbur_vbur', 'vbur_vtot',
+    'vbur_ratio_vbur_vtot', 'vbur_qvbur_min', 'vbur_qvbur_max',
+    'vbur_qvtot_min', 'vbur_qvtot_max', 'vbur_max_delta_qvbur',
+    'vbur_max_delta_qvtot', 'vbur_ovbur_min', 'vbur_ovbur_max',
+    'vbur_ovtot_min', 'vbur_ovtot_max', 'vbur_near_vbur', 'vbur_far_vbur',
+    'vbur_near_vtot', 'vbur_far_vtot', 'sterimol_B1', 'sterimol_B5',
+    'sterimol_L', 'sterimol_burB1', 'sterimol_burB5', 'sterimol_burL',
+    'vmin_vmin', 'vmin_r',
+])
+
+# Only these MMPROPERTIES should use every individual P value for their
+# ligand-level min/max/delta pool.  Molecular dipole and quadrupole values
+# remain one value per conformer.
+PHOSPHORUS_GEOMETRIC_MMPROPERTIES = frozenset(MMPROPERTIES).intersection(
+    PHOSPHORUS_GEOMETRIC_PROPERTIES
+)
+
 
 jobtypes = {'e':          [get_e_hf, 'streams'],
             'homo':       [get_homolumo, 'filecont'],
@@ -597,18 +628,20 @@ def get_morfeus_props(elements: np.ndarray,
 
     return morfdict
 
-def get_reference_phosphorus(elements: NDArray,
-                             conmat: NDArray) -> tuple[int, NDArray]:
-    '''Choose a tertiary phosphine P and remove only a spurious extra P--P contact.
+def get_reference_phosphorus_indices(elements: NDArray,
+                                     conmat: NDArray) -> dict[int, NDArray]:
+    '''Return every tertiary phosphine suitable for P-centred descriptors.
 
     DFT geometries can fold a diphosphine so that two non-bonded P atoms fall
     inside the distance-based connectivity cutoff.  A phosphorus with three
-    non-P neighbours is still a normal tertiary phosphine in that case.  Use a
-    corrected local connectivity matrix for artificial-Pd placement, while
-    continuing to reject phosphorus atoms with four non-P neighbours.
+    non-P neighbours is still a normal tertiary phosphine in that case.  Each
+    returned P has its own corrected local connectivity matrix for artificial
+    Pd placement, while phosphorus atoms with four non-P neighbours continue
+    to be rejected.
     '''
     phosphorus_indices = [index for index, element in enumerate(elements) if element == 'P']
     descriptions = []
+    reference_conmats = {}
 
     for phosphorus_index in phosphorus_indices:
         neighbours = list(np.flatnonzero(conmat[phosphorus_index]))
@@ -621,7 +654,8 @@ def get_reference_phosphorus(elements: NDArray,
 
         # Ordinary trivalent P, including a genuine three-coordinate P--P species.
         if len(neighbours) <= 3:
-            return phosphorus_index, conmat
+            reference_conmats[phosphorus_index] = conmat
+            continue
 
         # Three real non-P bonds plus only P contacts: remove those extra
         # distance-derived P--P contacts for the artificial-Pd construction.
@@ -635,12 +669,70 @@ def get_reference_phosphorus(elements: NDArray,
                 'when constructing the Pd reference geometry.',
                 len(phosphorus_neighbours), phosphorus_index,
             )
-            return phosphorus_index, reference_conmat
+            reference_conmats[phosphorus_index] = reference_conmat
+
+    if reference_conmats:
+        return reference_conmats
 
     raise ValueError(
         'Could not identify a tertiary phosphorus atom for Pd-reference placement. '
         f'Inferred coordination: {"; ".join(descriptions) or "no phosphorus atoms"}.'
     )
+
+
+def get_reference_phosphorus(elements: NDArray,
+                             conmat: NDArray) -> tuple[int, NDArray]:
+    '''Return the first suitable phosphorus for backwards-compatible callers.'''
+    reference_conmats = get_reference_phosphorus_indices(elements=elements,
+                                                          conmat=conmat)
+    phosphorus_index = next(iter(reference_conmats))
+    return phosphorus_index, reference_conmats[phosphorus_index]
+
+
+def average_phosphorus_properties(phosphorus_properties: dict[str, dict]) -> dict:
+    '''Average descriptor values over all selected phosphorus atoms.
+
+    A property remains ``None`` if it could not be calculated for any one of
+    the phosphorus atoms.  This preserves Kraken's existing missing-value
+    signalling for Boltzmann averaging instead of silently averaging a subset.
+    '''
+    property_labels = set()
+    for phosphorus_data in phosphorus_properties.values():
+        property_labels.update(phosphorus_data['properties'])
+
+    averaged_properties = {}
+    for label in property_labels:
+        values = [
+            phosphorus_data['properties'].get(label)
+            for phosphorus_data in phosphorus_properties.values()
+        ]
+        if any(value is None for value in values):
+            averaged_properties[label] = None
+        else:
+            averaged_properties[label] = float(np.mean(values))
+
+    return averaged_properties
+
+
+def get_condensed_property_values(confdata: dict,
+                                  property_label: str) -> list[float]:
+    '''Return values contributing to a ligand-level min/max/delta descriptor.'''
+    if property_label in PHOSPHORUS_GEOMETRIC_MMPROPERTIES:
+        phosphorus_properties = confdata.get('phosphorus_properties', {})
+        individual_values = [
+            phosphorus_data['properties'].get(property_label)
+            for phosphorus_data in phosphorus_properties.values()
+        ]
+
+        # Old conformer YAML files have no per-P results.  Keep them usable,
+        # but fall back to their legacy averaged value.
+        if not individual_values:
+            individual_values = [confdata.get('properties', {}).get(property_label)]
+
+        return [float(value) for value in individual_values if value is not None]
+
+    value = confdata.get('properties', {}).get(property_label)
+    return [] if value is None else [float(value)]
 
 
 def get_conformer_properties(main_logfile: Path,
@@ -681,29 +773,49 @@ def get_conformer_properties(main_logfile: Path,
     # Get the conmat
     conmat = get_conmat(elements=elements, coords=coords)
 
-    # Select a tertiary P.  For folded diphosphines, use a local connectivity
-    # matrix without an extra distance-derived P--P contact when placing Pd.
-    p_idx, reference_conmat = get_reference_phosphorus(elements=elements,
-                                                        conmat=conmat)
+    # Select every tertiary P.  For folded diphosphines, use a local
+    # connectivity matrix without an extra distance-derived P--P contact when
+    # placing Pd at each individual phosphorus.
+    reference_conmats = get_reference_phosphorus_indices(elements=elements,
+                                                          conmat=conmat)
+    p_indices = list(reference_conmats)
+    p_idx = p_indices[0]  # Retained for backwards compatibility in the YAML.
+    reference_conmat = reference_conmats[p_idx]
 
-    logger.info('The phosphorus index is %d', p_idx)
+    logger.info('Computing P-centred descriptors for phosphorus indices %s', p_indices)
 
-    # Add "Pd" at the reference position in the P-lone pair region
-    elements_pd, coordinates_pd = add_valence(elements=elements,
-                                              coords=coords,
-                                              conmat=reference_conmat,
-                                              base_idx=p_idx,
-                                              add_element="Pd")
+    palladated_geometries = {}
+    for phosphorus_index, phosphorus_conmat in reference_conmats.items():
+        elements_pd, coordinates_pd = add_valence(elements=elements,
+                                                   coords=coords,
+                                                   conmat=phosphorus_conmat,
+                                                   base_idx=phosphorus_index,
+                                                   add_element="Pd")
+        palladated_geometries[phosphorus_index] = (elements_pd, coordinates_pd)
 
-    # Make a file for the palladated coordinates
-    palladated_species_file = Path(optim_log.parent / f'{optim_log.stem}_Pd.xyz')
-    if not palladated_species_file.exists():
-        logger.info('Writing palladated species to %s', palladated_species_file.absolute())
-        write_xyz(destination=palladated_species_file,
-                  coords=coordinates_pd,
-                  elements=elements_pd)
-    else:
-        logger.warning('Using existing palladated species file %s', palladated_species_file.absolute())
+        # Keep the previous filename for the first P, and additionally write
+        # an unambiguous reference structure for every P.
+        palladated_species_file = Path(
+            optim_log.parent / f'{optim_log.stem}_P{phosphorus_index + 1}_Pd.xyz'
+        )
+        if not palladated_species_file.exists():
+            logger.info('Writing palladated species to %s', palladated_species_file.absolute())
+            write_xyz(destination=palladated_species_file,
+                      coords=coordinates_pd,
+                      elements=elements_pd)
+        else:
+            logger.warning('Using existing palladated species file %s', palladated_species_file.absolute())
+
+        if phosphorus_index == p_idx:
+            legacy_palladated_species_file = Path(optim_log.parent / f'{optim_log.stem}_Pd.xyz')
+            if not legacy_palladated_species_file.exists():
+                write_xyz(destination=legacy_palladated_species_file,
+                          coords=coordinates_pd,
+                          elements=elements_pd)
+
+    # Preserve the old single-P fields as the first valid phosphorus.  The
+    # P-specific reference structures are available as separate XYZ files.
+    elements_pd, coordinates_pd = palladated_geometries[p_idx]
 
     # Convert the optimized file to a .sdf file
     optimized_xyz_file = Path(optim_log.parent / f'{optim_log.stem}.xyz')
@@ -728,15 +840,30 @@ def get_conformer_properties(main_logfile: Path,
     confdata['conmat'] = reference_conmat.tolist()
     confdata['p_idx'] = p_idx
     confdata['p_val'] = int(sum(reference_conmat[p_idx]))  # how many substituents at phosphorus
+    confdata['p_indices'] = p_indices
+    confdata['phosphorus_properties'] = {}
 
     # Make another key for properties
     confdata['properties'] = {}
 
-    gp_props = gp_properties(sublogs=[optim_log, freq_log,sp_log, nmr_log, efg_log, nbo_log, solv_log, ra_log, rc_log],
-                             conformer_name=main_logfile.stem,
-                             p_idx=p_idx)
-
+    gp_props_by_phosphorus = {
+        phosphorus_index: gp_properties(
+            sublogs=[optim_log, freq_log, sp_log, nmr_log, efg_log, nbo_log,
+                     solv_log, ra_log, rc_log],
+            conformer_name=main_logfile.stem,
+            p_idx=phosphorus_index,
+        )
+        for phosphorus_index in p_indices
+    }
+    gp_props = gp_props_by_phosphorus[p_idx]
     confdata.update(gp_props)
+
+    failed_phosphorus_indices = [
+        phosphorus_index for phosphorus_index, properties in gp_props_by_phosphorus.items()
+        if properties['error']
+    ]
+    if failed_phosphorus_indices:
+        confdata['error'] = True
 
     # If there is some conformer-level error
     if confdata['error']:
@@ -754,11 +881,26 @@ def get_conformer_properties(main_logfile: Path,
 
     logger.info('Computing MORFEUS properties on %s', main_logfile.name)
 
-    morfeus_props = get_morfeus_props(elements=elements_pd,
-                                      coordinates=coordinates_pd,
-                                      phosphorus_valence=confdata['p_val'])
-
-    confdata['properties'].update(morfeus_props)
+    for phosphorus_index in p_indices:
+        phosphorus_conmat = reference_conmats[phosphorus_index]
+        phosphorus_valence = int(sum(phosphorus_conmat[phosphorus_index]))
+        phosphorus_elements_pd, phosphorus_coordinates_pd = palladated_geometries[phosphorus_index]
+        phosphorus_data = {
+            'atom_index': phosphorus_index,
+            'atom_number': phosphorus_index + 1,
+            'p_val': phosphorus_valence,
+            'properties': {
+                label: value
+                for label, value in gp_props_by_phosphorus[phosphorus_index]['properties'].items()
+                if label in PHOSPHORUS_GAUSSIAN_PROPERTIES
+            },
+        }
+        phosphorus_data['properties'].update(
+            get_morfeus_props(elements=phosphorus_elements_pd,
+                              coordinates=phosphorus_coordinates_pd,
+                              phosphorus_valence=phosphorus_valence)
+        )
+        confdata['phosphorus_properties'][f'P{phosphorus_index + 1}'] = phosphorus_data
 
     # In the old code, Pint was read in from a file here and
     # placed into confdata, but because Pint was computed seperately
@@ -772,11 +914,26 @@ def get_conformer_properties(main_logfile: Path,
     for label, value in zip(pint_descriptor_labels, pint_read[:7]):
         confdata['properties'][label] = float(value)
 
-    # Get the Vmin
-    logger.info('Computing vmin')
-    vmin_object = get_vmin(fchk=formatted_chk_file, nprocs=nprocs, runcub=True)
-    confdata['properties']["vmin_vmin"] = float(vmin_object.v_min)
-    confdata['properties']["vmin_r"] = float(vmin_object.r_min)
+    # Get Vmin at the lone-pair region of every selected phosphorus.  The
+    # Vmin helper writes P-specific intermediate files so the calculations do
+    # not reuse the cube generated for the other P atom.
+    for phosphorus_index in p_indices:
+        logger.info('Computing vmin for phosphorus index %d', phosphorus_index)
+        vmin_object = get_vmin(fchk=formatted_chk_file,
+                               nprocs=nprocs,
+                               runcub=True,
+                               reference_atom_index=phosphorus_index)
+        confdata['phosphorus_properties'][f'P{phosphorus_index + 1}']['properties'].update({
+            'vmin_vmin': float(vmin_object.v_min),
+            'vmin_r': float(vmin_object.r_min),
+        })
+
+    # Keep the existing flat property names, now containing the arithmetic
+    # mean across all P atoms.  This makes existing Boltzmann averaging and
+    # CSV conversion consume the intended per-conformer P average.
+    confdata['properties'].update(
+        average_phosphorus_properties(confdata['phosphorus_properties'])
+    )
 
     return confdata, errors
 
@@ -1305,7 +1462,17 @@ def run_end(kraken_id: str,
 
         #logger.debug('Computing condensed properties for property %s', prop)
 
-        proplist = [ligand_data["confdata"][conf]["properties"][prop] for conf in ligand_data["conformers"] if prop in ligand_data["confdata"][conf]["properties"].keys()]
+        # P-centred geometric descriptors contribute one value for every
+        # phosphorus atom in every conformer.  Other descriptors remain one
+        # value per conformer.  This makes, for example, pyr_alpha_min the
+        # minimum over both phosphines rather than over their conformer means.
+        proplist = [
+            value
+            for conf in ligand_data["conformers"]
+            for value in get_condensed_property_values(
+                ligand_data["confdata"][conf], prop
+            )
+        ]
 
         # if a single conformer is missing a property value, still perform min/max analysis
         # (Boltzmann-average will be None to indicate missing value(s))
