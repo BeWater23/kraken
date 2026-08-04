@@ -721,9 +721,13 @@ def get_conformer_properties(main_logfile: Path,
     confdata['coords_pd'] = coordinates_pd.tolist()
     confdata['elements'] = elements
     confdata['elements_pd'] = elements_pd
-    confdata['conmat'] = conmat.tolist()
+    # Persist the chemically corrected topology.  The raw distance-based
+    # matrix can contain a false close-contact P--P bond in folded
+    # diphosphines; retaining it would mislabel this phosphine as tetravalent
+    # in the YAML and in downstream CSV conversion.
+    confdata['conmat'] = reference_conmat.tolist()
     confdata['p_idx'] = p_idx
-    confdata['p_val'] = int(sum(conmat[p_idx]))  # how many substituents at phosphorus
+    confdata['p_val'] = int(sum(reference_conmat[p_idx]))  # how many substituents at phosphorus
 
     # Make another key for properties
     confdata['properties'] = {}
@@ -1349,4 +1353,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
