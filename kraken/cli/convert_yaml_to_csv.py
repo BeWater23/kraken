@@ -59,12 +59,23 @@ def get_args() -> argparse.Namespace:
                         help='Parent directory that contains multiple <kraken_id> dirs.\n\n',
                         metavar='STR')
 
+    parser.add_argument('--output-dir',
+                        dest='output_dir',
+                        default='output',
+                        type=Path,
+                        help=('Directory for converted CSV, summary YAML, and DFT XYZ files. '
+                              'A relative path is placed inside --directory. Default: output\n\n'),
+                        metavar='DIR')
+
     parser.add_argument('--debug', action='store_true', help='Prints debug information\n\n')
 
     args = parser.parse_args()
 
     if not args.directory.exists():
         raise FileNotFoundError(f'Could not locate {args.directory.absolute()}.')
+
+    if args.output_dir.is_absolute() or '..' in args.output_dir.parts:
+        raise ValueError('--output-dir must be a relative subdirectory of --directory.')
 
     return args
 
@@ -223,8 +234,8 @@ def main():
     )
 
     parent_dir = Path(args.directory)
-    output_dir = parent_dir / 'output'
-    output_dir.mkdir(exist_ok=True)
+    output_dir = parent_dir / args.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Get a list of directories
     #TODO Write a function that validates if we have a legit kraken_id
