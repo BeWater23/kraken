@@ -597,6 +597,52 @@ def get_morfeus_props(elements: np.ndarray,
 
     return morfdict
 
+def get_reference_phosphorus(elements: NDArray,
+                             conmat: NDArray) -> tuple[int, NDArray]:
+    '''Choose a tertiary phosphine P and remove only a spurious extra P--P contact.
+
+    DFT geometries can fold a diphosphine so that two non-bonded P atoms fall
+    inside the distance-based connectivity cutoff.  A phosphorus with three
+    non-P neighbours is still a normal tertiary phosphine in that case.  Use a
+    corrected local connectivity matrix for artificial-Pd placement, while
+    continuing to reject phosphorus atoms with four non-P neighbours.
+    '''
+    phosphorus_indices = [index for index, element in enumerate(elements) if element == 'P']
+    descriptions = []
+
+    for phosphorus_index in phosphorus_indices:
+        neighbours = list(np.flatnonzero(conmat[phosphorus_index]))
+        non_phosphorus_neighbours = [index for index in neighbours if elements[index] != 'P']
+        phosphorus_neighbours = [index for index in neighbours if elements[index] == 'P']
+        descriptions.append(
+            f'P{phosphorus_index}: total={len(neighbours)}, '
+            f'non-P={len(non_phosphorus_neighbours)}, P={len(phosphorus_neighbours)}'
+        )
+
+        # Ordinary trivalent P, including a genuine three-coordinate P--P species.
+        if len(neighbours) <= 3:
+            return phosphorus_index, conmat
+
+        # Three real non-P bonds plus only P contacts: remove those extra
+        # distance-derived P--P contacts for the artificial-Pd construction.
+        if len(non_phosphorus_neighbours) == 3 and phosphorus_neighbours:
+            reference_conmat = conmat.copy()
+            for neighbour_index in phosphorus_neighbours:
+                reference_conmat[phosphorus_index, neighbour_index] = 0
+                reference_conmat[neighbour_index, phosphorus_index] = 0
+            logger.warning(
+                'Ignoring %d distance-derived P--P contact(s) for P index %d '
+                'when constructing the Pd reference geometry.',
+                len(phosphorus_neighbours), phosphorus_index,
+            )
+            return phosphorus_index, reference_conmat
+
+    raise ValueError(
+        'Could not identify a tertiary phosphorus atom for Pd-reference placement. '
+        f'Inferred coordination: {"; ".join(descriptions) or "no phosphorus atoms"}.'
+    )
+
+
 def get_conformer_properties(main_logfile: Path,
                              optim_log: Path,
                              freq_log: Path,
@@ -635,16 +681,17 @@ def get_conformer_properties(main_logfile: Path,
     # Get the conmat
     conmat = get_conmat(elements=elements, coords=coords)
 
-    # Get the index of the phosphorus atom
-    # This check removes quaternary phosphorus atoms (phosphonium, phosphate, etc.) but allows
-    p_idx = [i for i in range(len(elements)) if elements[i] == "P" and sum(conmat[i]) <= 3][0]
+    # Select a tertiary P.  For folded diphosphines, use a local connectivity
+    # matrix without an extra distance-derived P--P contact when placing Pd.
+    p_idx, reference_conmat = get_reference_phosphorus(elements=elements,
+                                                        conmat=conmat)
 
     logger.info('The phosphorus index is %d', p_idx)
 
     # Add "Pd" at the reference position in the P-lone pair region
     elements_pd, coordinates_pd = add_valence(elements=elements,
                                               coords=coords,
-                                              conmat=conmat,
+                                              conmat=reference_conmat,
                                               base_idx=p_idx,
                                               add_element="Pd")
 
@@ -1302,5 +1349,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
