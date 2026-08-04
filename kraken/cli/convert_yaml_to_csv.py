@@ -10,6 +10,7 @@ import yaml
 import logging
 import argparse
 import subprocess
+import shutil
 import numpy as np
 import pandas as pd
 
@@ -176,6 +177,31 @@ def mol_from_elements_coords_connectivity(elements: list[str],
 
     return mol
 
+
+def write_dft_conformers_xyz(conformer_data: dict,
+                             destination: Path) -> Path:
+    '''Write all final DFT conformers for one ligand to a multi-XYZ file.'''
+    with open(destination, 'w', encoding='utf-8') as output_file:
+        for conformer_name in sorted(conformer_data):
+            conformer = conformer_data[conformer_name]
+            elements = conformer['elements']
+            coordinates = conformer['coords']
+
+            if len(elements) != len(coordinates):
+                raise ValueError(
+                    f'Conformer {conformer_name} has {len(elements)} elements but '
+                    f'{len(coordinates)} coordinates.'
+                )
+
+            output_file.write(f'{len(elements)}\n{conformer_name}\n')
+            for element, (x_coord, y_coord, z_coord) in zip(elements, coordinates):
+                output_file.write(
+                    f'{element} {float(x_coord):.8f} {float(y_coord):.8f} '
+                    f'{float(z_coord):.8f}\n'
+                )
+
+    return destination
+
 def main():
     '''
     Main function
@@ -197,12 +223,15 @@ def main():
     )
 
     parent_dir = Path(args.directory)
+    output_dir = parent_dir / 'output'
+    output_dir.mkdir(exist_ok=True)
 
     # Get a list of directories
     #TODO Write a function that validates if we have a legit kraken_id
-    directories = [x for x in parent_dir.glob('*') if x.is_dir() and len(x.stem) == 8]
+    directories = sorted(x for x in parent_dir.glob('*') if x.is_dir() and len(x.stem) == 8)
 
     list_of_series = []
+    data_ymls_to_move = []
 
     for data_dir in directories:
         kraken_id = str(data_dir.stem)
@@ -215,6 +244,14 @@ def main():
         # Define the two yamls
         confdata_yml = data_dir / f'{kraken_id}_confdata.yml'
         data_yml = data_dir / f'{kraken_id}_data.yml'
+        archived_data_yml = output_dir / data_yml.name
+
+        if not data_yml.exists():
+            if archived_data_yml.exists():
+                logger.info('Using archived summary data %s', archived_data_yml.name)
+                data_yml = archived_data_yml
+            else:
+                raise FileNotFoundError(f'Could not locate {data_yml.absolute()}.')
 
         # Get an intial pd.Series which is missing the SMILES
         series = convert_yml_to_series(data_yml,
@@ -223,6 +260,13 @@ def main():
         # Read in the confdata to get the smiles
         with open(confdata_yml, 'r', encoding='utf-8') as f:
             data = yaml.full_load(f)
+
+        dft_conformers_xyz = output_dir / f'{kraken_id}_dft_conformers.xyz'
+        write_dft_conformers_xyz(conformer_data=data,
+                                 destination=dft_conformers_xyz)
+
+        if data_yml.parent == data_dir:
+            data_ymls_to_move.append((data_yml, archived_data_yml))
 
         # Make a list to hold all the smiles
         smiles_list = []
@@ -292,7 +336,21 @@ def main():
     df.set_index('name', inplace=True, drop=True)
     print(df)
 
-    df.to_csv(f'./{parent_dir.resolve().stem}_kraken_descriptors.csv')
+    descriptor_csv = output_dir / f'{parent_dir.resolve().stem}_kraken_descriptors.csv'
+    df.to_csv(descriptor_csv)
+
+    destination_collisions = [
+        destination for _, destination in data_ymls_to_move if destination.exists()
+    ]
+    if destination_collisions:
+        raise FileExistsError(
+            'Refusing to overwrite archived summary data: '
+            f'{", ".join(str(path) for path in destination_collisions)}'
+        )
+
+    for source, destination in data_ymls_to_move:
+        shutil.move(source, destination)
+        logger.info('Moved summary data to %s', destination.absolute())
 
 if __name__ == "__main__":
     main()
