@@ -236,10 +236,13 @@ PHOSPHORUS_GEOMETRIC_PROPERTIES = frozenset([
     'vmin_vmin', 'vmin_r',
 ])
 
-# Add P-centred electronic properties to the geometric min/max/delta output.
+# Add every P-centred descriptor to the geometric min/max/delta output.  This
+# includes Gaussian electronic descriptors, Vmin, and the buried-volume ratio.
 # Molecular dipole and quadrupole values remain one value per conformer.
 CONDENSED_PROPERTIES = MMPROPERTIES + sorted(
-    PHOSPHORUS_GAUSSIAN_PROPERTIES.difference(MMPROPERTIES)
+    PHOSPHORUS_GAUSSIAN_PROPERTIES.union(
+        PHOSPHORUS_GEOMETRIC_PROPERTIES
+    ).difference(MMPROPERTIES)
 )
 PHOSPHORUS_CONDENSED_PROPERTIES = frozenset(CONDENSED_PROPERTIES).intersection(
     PHOSPHORUS_GAUSSIAN_PROPERTIES.union(PHOSPHORUS_GEOMETRIC_PROPERTIES)
