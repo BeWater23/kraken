@@ -276,12 +276,6 @@ def main():
                     destination=output_dir / f'{kraken_id}_{suffix}_dft_conformers.xyz',
                 )
 
-        combined_dft_conformers_xyz = output_dir / f'{kraken_id}_dft_conformers.xyz'
-        if combined_dft_conformers_xyz.exists():
-            combined_dft_conformers_xyz.unlink()
-            logger.info('Removed obsolete mixed-order conformer file %s',
-                        combined_dft_conformers_xyz.name)
-
         if data_yml.parent == data_dir:
             data_ymls_to_move.append((data_yml, archived_data_yml))
 
